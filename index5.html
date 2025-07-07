@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helper Profiles</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #e3f2f9; }
+    header { background: linear-gradient(to right, #6db3f2, #1e69de); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { margin: 0 auto; font-size: 28px; text-align: center; flex: 1; }
+    .admin-button, .logout-button { background: white; color: #1e69de; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-left: 10px; }
+    .admin-form { max-width: 600px; background: #fff; margin: 20px auto; padding: 20px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); display: none; }
+    .admin-form label { display: block; margin-top: 10px; font-weight: bold; color: #333; }
+    .admin-form input, .admin-form button { width: 100%; margin: 10px 0; padding: 12px; border-radius: 10px; border: 1px solid #ccc; font-size: 16px; }
+    .admin-form button { background-color: #1e69de; color: white; border: none; cursor: pointer; font-weight: bold; transition: background 0.3s; }
+    .admin-form button:hover { background-color: #155ab6; }
+    .filters { display: flex; justify-content: center; gap: 20px; margin: 20px; flex-wrap: wrap; }
+    .filters label { font-weight: bold; margin-right: 5px; color: #444; }
+    .filters select { padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; }
+    .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; padding: 20px; }
+    .card { background: white; width: 300px; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; transition: transform 0.2s; border: 2px solid #c6e4f8; }
+    .card:hover { transform: translateY(-5px); }
+    .card img { width: 100%; height: auto; object-fit: contain; cursor: pointer; border-bottom: 1px solid #d0ecfb; border-radius: 16px 16px 0 0; }
+    .card-body { padding: 15px; background-color: #f5fbff; }
+    .card-body h3 { margin: 0 0 10px; color: #1e69de; }
+    .card-body p { margin: 5px 0; color: #555; }
+    .card-body a { color: #1e69de; text-decoration: none; font-weight: bold; }
+    .card-body a.pdf-link { display: inline-block; margin-top: 10px; padding: 6px 12px; background: #1e69de; color: white; border-radius: 5px; text-decoration: none; }
+    .card-body button { background-color: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 999; }
+    .modal img { max-width: 90%; max-height: 90%; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Helper Profiles Directory</h1>
+    <div>
+      <button class="admin-button" onclick="toggleAdmin()"><i class="fas fa-user-shield"></i> Admin</button>
+      <button class="logout-button" id="logoutBtn" style="display:none;" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+    </div>
+  </header>
+
+  <div class="admin-form" id="adminForm">
+    <h3>Add New Helper</h3>
+    <label for="name">Full Name</label>
+    <input type="text" id="name" placeholder="Full Name" />
+    <label for="age">Age</label>
+    <input type="number" id="age" placeholder="Age" />
+    <label for="country">Country of Experience</label>
+    <input type="text" id="country" placeholder="Country of Experience" />
+    <label for="experience">Years of Experience</label>
+    <input type="text" id="experience" placeholder="Years of Experience" />
+    <label for="skills">Skills</label>
+    <input type="text" id="skills" placeholder="Skills (comma-separated)" />
+    <label for="imageUpload">Profile Image</label>
+    <input type="file" id="imageUpload" accept="image/*" />
+    <label for="fileUpload">PDF File</label>
+    <input type="file" id="fileUpload" accept="application/pdf" />
+    <button id="submitProfile"><i class="fas fa-plus"></i> Add Profile</button>
+    <p id="formStatus" style="color: green;"></p>
+  </div>
+
+  <!-- 🔍 Filtering UI -->
+  <div class="filters">
+    <label for="countryFilter">Country:</label>
+    <select id="countryFilter">
+      <option value="">All</option>
+    </select>
+
+    <label for="skillFilter">Skill:</label>
+    <select id="skillFilter">
+      <option value="">All</option>
+    </select>
+  </div>
+
+  <div class="container" id="profileContainer"></div>
+
+  <div class="modal" id="imageModal" onclick="this.style.display='none'">
+    <img id="modalImage" src="" alt="Full View">
+  </div>
+
+  <script>
+    let db;
+    let isAdmin = false;
+
+    const request = indexedDB.open("HelperProfilesDB", 1);
+
+    request.onupgradeneeded = function (e) {
+      db = e.target.result;
+      if (!db.objectStoreNames.contains("profiles")) {
+        db.createObjectStore("profiles", { keyPath: "id", autoIncrement: true });
+      }
+    };
+
+    request.onsuccess = function (e) {
+      db = e.target.result;
+      renderProfiles();
+
+      // 🔁 Filter Event Listeners
+      document.getElementById("countryFilter").addEventListener("change", renderProfiles);
+      document.getElementById("skillFilter").addEventListener("change", renderProfiles);
+    };
+
+    request.onerror = function () {
+      alert("Failed to open IndexedDB");
+    };
+
+    document.getElementById("submitProfile").addEventListener("click", () => {
+      const name = document.getElementById("name").value.trim();
+      const age = document.getElementById("age").value.trim();
+      const country = document.getElementById("country").value.trim();
+      const experience = document.getElementById("experience").value.trim();
+      const skills = document.getElementById("skills").value.trim();
+      const imgFile = document.getElementById("imageUpload").files[0];
+      const pdfFile = document.getElementById("fileUpload").files[0];
+      const status = document.getElementById("formStatus");
+
+      if (!name || !age || !country || !experience || !skills || !imgFile || !pdfFile) return alert("Complete all fields");
+
+      const readerImg = new FileReader();
+      readerImg.onload = e1 => {
+        const profile = { name, age, country, experience, skills, image: e1.target.result, file: null };
+
+        const readerPdf = new FileReader();
+        readerPdf.onload = e2 => {
+          const blob = new Blob([e2.target.result], { type: 'application/pdf' });
+          const fileURL = URL.createObjectURL(blob);
+          profile.file = fileURL;
+
+          const tx = db.transaction("profiles", "readwrite");
+          const store = tx.objectStore("profiles");
+          store.add(profile);
+          tx.oncomplete = () => {
+            status.textContent = "Profile added!";
+            renderProfiles();
+          };
+        };
+        readerPdf.readAsArrayBuffer(pdfFile);
+      };
+      readerImg.readAsDataURL(imgFile);
+    });
+
+    function renderProfiles() {
+      const container = document.getElementById("profileContainer");
+      container.innerHTML = "";
+
+      const selectedCountry = document.getElementById("countryFilter").value.toLowerCase();
+      const selectedSkill = document.getElementById("skillFilter").value.toLowerCase();
+
+      const tx = db.transaction("profiles", "readonly");
+      const store = tx.objectStore("profiles");
+
+      const countrySet = new Set();
+      const skillSet = new Set();
+
+      store.openCursor().onsuccess = function (event) {
+        const cursor = event.target.result;
+        if (cursor) {
+          const p = cursor.value;
+
+          countrySet.add(p.country);
+          p.skills.split(',').forEach(skill => skillSet.add(skill.trim()));
+
+          const matchesCountry = !selectedCountry || p.country.toLowerCase() === selectedCountry;
+          const matchesSkill = !selectedSkill || p.skills.toLowerCase().includes(selectedSkill);
+
+          if (matchesCountry && matchesSkill) {
+            const card = document.createElement("div");
+            card.className = "card";
+            card.innerHTML = `
+              <img src="${p.image}" onclick="openModal('${p.image}')" />
+              <div class="card-body">
+                <h3>${p.name}</h3>
+                <p><strong>Age:</strong> ${p.age}</p>
+                <p><strong>Country:</strong> ${p.country}</p>
+                <p><strong>Experience:</strong> ${p.experience}</p>
+                <p><strong>Skills:</strong> ${p.skills}</p>
+                <a class="pdf-link" href="${p.file}" target="_blank"><i class="fas fa-file-download"></i> View PDF</a>
+                ${isAdmin ? `<button onclick="deleteProfile(${cursor.key})"><i class='fas fa-trash'></i> Delete</button>` : ""}
+              </div>
+            `;
+            container.appendChild(card);
+          }
+
+          cursor.continue();
+        } else {
+          // Populate filters
+          const countrySelect = document.getElementById("countryFilter");
+          const skillSelect = document.getElementById("skillFilter");
+
+          const populate = (select, items) => {
+            const selected = select.value;
+            select.innerHTML = '<option value="">All</option>';
+            Array.from(items).sort().forEach(val => {
+              const opt = document.createElement("option");
+              opt.value = val;
+              opt.textContent = val;
+              select.appendChild(opt);
+            });
+            select.value = selected;
+          };
+
+          populate(countrySelect, countrySet);
+          populate(skillSelect, skillSet);
+        }
+      };
+    }
+
+    function deleteProfile(id) {
+      const tx = db.transaction("profiles", "readwrite");
+      const store = tx.objectStore("profiles");
+      store.delete(id);
+      tx.oncomplete = () => renderProfiles();
+    }
+
+    function openModal(src) {
+      const modal = document.getElementById("imageModal");
+      const modalImg = document.getElementById("modalImage");
+      modalImg.src = src;
+      modal.style.display = "flex";
+    }
+
+    function toggleAdmin() {
+      if (!isAdmin) {
+        const password = prompt("Enter admin password:");
+        if (password !== "admin123") return alert("Incorrect password");
+        isAdmin = true;
+        document.getElementById("adminForm").style.display = "block";
+        document.getElementById("logoutBtn").style.display = "inline-block";
+        renderProfiles();
+      } else {
+        logout();
+      }
+    }
+
+    function logout() {
+      isAdmin = false;
+      document.getElementById("adminForm").style.display = "none";
+      document.getElementById("logoutBtn").style.display = "none";
+      renderProfiles();
+    }
+  </script>
+</body>
+</html>
